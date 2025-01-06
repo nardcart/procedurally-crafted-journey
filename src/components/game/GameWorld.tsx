@@ -17,11 +17,12 @@ export const GameWorld = () => {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Initialize scene
+    // Initialize scene with fog for depth
     const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x87ceeb, 0.0015);
     sceneRef.current = scene;
 
-    // Setup camera
+    // Setup camera with better initial position
     const camera = new THREE.PerspectiveCamera(
       75,
       window.innerWidth / window.innerHeight,
@@ -32,22 +33,38 @@ export const GameWorld = () => {
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
 
-    // Setup renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // Setup renderer with better shadows
+    const renderer = new THREE.WebGLRenderer({ 
+      antialias: true,
+      powerPreference: "high-performance"
+    });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0x87ceeb); // Sky blue
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     containerRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // Add lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    // Enhanced lighting setup
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
     scene.add(ambientLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(50, 50, 50);
-    directionalLight.castShadow = true;
-    scene.add(directionalLight);
+    const sunLight = new THREE.DirectionalLight(0xffffff, 1);
+    sunLight.position.set(50, 100, 50);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.camera.near = 0.5;
+    sunLight.shadow.camera.far = 500;
+    sunLight.shadow.camera.left = -100;
+    sunLight.shadow.camera.right = 100;
+    sunLight.shadow.camera.top = 100;
+    sunLight.shadow.camera.bottom = -100;
+    scene.add(sunLight);
+
+    // Add hemisphere light for better ambient lighting
+    const hemisphereLight = new THREE.HemisphereLight(0x87ceeb, 0x4ade80, 0.6);
+    scene.add(hemisphereLight);
 
     // Initialize noise generator
     noiseRef.current = createNoise2D();
@@ -57,7 +74,7 @@ export const GameWorld = () => {
     scene.add(initialTerrain);
     chunksRef.current.set('0,0', initialTerrain);
 
-    // Create player
+    // Create player with enhanced visuals
     const player = new Player();
     scene.add(player.mesh);
     playerRef.current = player;
@@ -76,7 +93,7 @@ export const GameWorld = () => {
 
     const updateTerrainChunks = (playerPos: THREE.Vector3) => {
       const chunkSize = 100;
-      const renderDistance = 2;
+      const renderDistance = 3; // Increased render distance
       
       const currentChunkX = Math.floor(playerPos.x / chunkSize);
       const currentChunkZ = Math.floor(playerPos.z / chunkSize);
@@ -97,7 +114,7 @@ export const GameWorld = () => {
         }
       }
 
-      // Remove chunks outside render distance
+      // Remove chunks outside render distance with fade effect
       for (const [key, chunk] of chunksRef.current.entries()) {
         const [x, z] = key.split(',').map(Number);
         if (
@@ -110,37 +127,40 @@ export const GameWorld = () => {
       }
     };
 
-    // Animation loop
+    // Animation loop with enhanced effects
     const animate = () => {
       requestAnimationFrame(animate);
       
-      // Update player
       if (playerRef.current && noiseRef.current) {
         playerRef.current.update(keysRef.current);
         
-        // Get height at player position
         const playerPos = playerRef.current.mesh.position;
         const groundHeight = getHeightAtPosition(noiseRef.current, playerPos.x, playerPos.z);
-        playerPos.y = groundHeight + 1; // Keep player slightly above ground
+        playerPos.y = groundHeight + 1;
 
-        // Update terrain chunks
         updateTerrainChunks(playerPos);
         
-        // Update camera to follow player
-        camera.position.x = playerPos.x;
-        camera.position.y = playerPos.y + 10;
-        camera.position.z = playerPos.z + 20;
+        // Smooth camera following
+        const targetCameraPos = new THREE.Vector3(
+          playerPos.x,
+          playerPos.y + 15,
+          playerPos.z + 25
+        );
+        camera.position.lerp(targetCameraPos, 0.1);
         camera.lookAt(playerPos);
       }
 
-      // Update grass animation for visible chunks
+      // Enhanced grass animation
       const time = performance.now() * 0.001;
       chunksRef.current.forEach((chunk) => {
         const vertices = chunk.geometry.attributes.position.array;
         for (let i = 0; i < vertices.length; i += 3) {
           const x = vertices[i];
           const z = vertices[i + 2];
-          vertices[i + 1] += Math.sin(time + x * 0.5 + z * 0.5) * 0.01;
+          const originalY = vertices[i + 1];
+          vertices[i + 1] = originalY + 
+            Math.sin(time + x * 0.5 + z * 0.5) * 0.1 * // Main wave
+            Math.sin(time * 1.5 + x * 0.3) * 0.05; // Secondary wave
         }
         chunk.geometry.attributes.position.needsUpdate = true;
       });
