@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import type { Noise2D } from 'simplex-noise';
+import type { NoiseFunction2D } from 'simplex-noise';
 
-export const generateTerrain = (noise2D: Noise2D) => {
+export const generateTerrain = (noise2D: NoiseFunction2D) => {
   const geometry = new THREE.PlaneGeometry(100, 100, 100, 100);
   geometry.rotateX(-Math.PI / 2);
 
@@ -33,4 +33,16 @@ export const generateTerrain = (noise2D: Noise2D) => {
   });
 
   return new THREE.Mesh(geometry, material);
+};
+
+// Helper function to get height at position
+export const getHeightAtPosition = (noise2D: NoiseFunction2D, x: number, z: number): number => {
+  const scaledX = x / 25;
+  const scaledZ = z / 25;
+  
+  return (
+    noise2D(scaledX, scaledZ) * 5 +
+    noise2D(scaledX * 2, scaledZ * 2) * 2.5 +
+    noise2D(scaledX * 4, scaledZ * 4) * 1.25
+  );
 };

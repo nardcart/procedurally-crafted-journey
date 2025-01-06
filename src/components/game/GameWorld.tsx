@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
-import { generateTerrain } from './terrain';
+import { generateTerrain, getHeightAtPosition } from './terrain';
 import { Player } from './Player';
 
 export const GameWorld = () => {
@@ -11,6 +11,8 @@ export const GameWorld = () => {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const playerRef = useRef<Player | null>(null);
   const keysRef = useRef<Set<string>>(new Set());
+  const noiseRef = useRef<ReturnType<typeof createNoise2D>>();
+  const chunksRef = useRef<Map<string, THREE.Mesh>>(new Map());
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -47,10 +49,13 @@ export const GameWorld = () => {
     directionalLight.castShadow = true;
     scene.add(directionalLight);
 
-    // Generate terrain
-    const noise2D = createNoise2D();
-    const terrain = generateTerrain(noise2D);
-    scene.add(terrain);
+    // Initialize noise generator
+    noiseRef.current = createNoise2D();
+
+    // Generate initial terrain chunk
+    const initialTerrain = generateTerrain(noiseRef.current);
+    scene.add(initialTerrain);
+    chunksRef.current.set('0,0', initialTerrain);
 
     // Create player
     const player = new Player();
@@ -69,30 +74,76 @@ export const GameWorld = () => {
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
+    const updateTerrainChunks = (playerPos: THREE.Vector3) => {
+      const chunkSize = 100;
+      const renderDistance = 2;
+      
+      const currentChunkX = Math.floor(playerPos.x / chunkSize);
+      const currentChunkZ = Math.floor(playerPos.z / chunkSize);
+
+      // Generate new chunks in render distance
+      for (let x = -renderDistance; x <= renderDistance; x++) {
+        for (let z = -renderDistance; z <= renderDistance; z++) {
+          const chunkX = currentChunkX + x;
+          const chunkZ = currentChunkZ + z;
+          const key = `${chunkX},${chunkZ}`;
+
+          if (!chunksRef.current.has(key) && noiseRef.current) {
+            const chunk = generateTerrain(noiseRef.current);
+            chunk.position.set(chunkX * chunkSize, 0, chunkZ * chunkSize);
+            scene.add(chunk);
+            chunksRef.current.set(key, chunk);
+          }
+        }
+      }
+
+      // Remove chunks outside render distance
+      for (const [key, chunk] of chunksRef.current.entries()) {
+        const [x, z] = key.split(',').map(Number);
+        if (
+          Math.abs(x - currentChunkX) > renderDistance ||
+          Math.abs(z - currentChunkZ) > renderDistance
+        ) {
+          scene.remove(chunk);
+          chunksRef.current.delete(key);
+        }
+      }
+    };
+
     // Animation loop
     const animate = () => {
       requestAnimationFrame(animate);
       
       // Update player
-      if (playerRef.current) {
+      if (playerRef.current && noiseRef.current) {
         playerRef.current.update(keysRef.current);
         
-        // Update camera to follow player
+        // Get height at player position
         const playerPos = playerRef.current.mesh.position;
+        const groundHeight = getHeightAtPosition(noiseRef.current, playerPos.x, playerPos.z);
+        playerPos.y = groundHeight + 1; // Keep player slightly above ground
+
+        // Update terrain chunks
+        updateTerrainChunks(playerPos);
+        
+        // Update camera to follow player
         camera.position.x = playerPos.x;
+        camera.position.y = playerPos.y + 10;
         camera.position.z = playerPos.z + 20;
         camera.lookAt(playerPos);
       }
 
-      // Update grass animation
+      // Update grass animation for visible chunks
       const time = performance.now() * 0.001;
-      const vertices = terrain.geometry.attributes.position.array;
-      for (let i = 0; i < vertices.length; i += 3) {
-        const x = vertices[i];
-        const z = vertices[i + 2];
-        vertices[i + 1] += Math.sin(time + x * 0.5 + z * 0.5) * 0.01;
-      }
-      terrain.geometry.attributes.position.needsUpdate = true;
+      chunksRef.current.forEach((chunk) => {
+        const vertices = chunk.geometry.attributes.position.array;
+        for (let i = 0; i < vertices.length; i += 3) {
+          const x = vertices[i];
+          const z = vertices[i + 2];
+          vertices[i + 1] += Math.sin(time + x * 0.5 + z * 0.5) * 0.01;
+        }
+        chunk.geometry.attributes.position.needsUpdate = true;
+      });
 
       renderer.render(scene, camera);
     };
