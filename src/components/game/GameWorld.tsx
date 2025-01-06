@@ -2,12 +2,15 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
 import { generateTerrain } from './terrain';
+import { Player } from './Player';
 
 export const GameWorld = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const playerRef = useRef<Player | null>(null);
+  const keysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -23,7 +26,7 @@ export const GameWorld = () => {
       0.1,
       1000
     );
-    camera.position.set(0, 10, 20);
+    camera.position.set(0, 15, 30);
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
 
@@ -49,10 +52,38 @@ export const GameWorld = () => {
     const terrain = generateTerrain(noise2D);
     scene.add(terrain);
 
+    // Create player
+    const player = new Player();
+    scene.add(player.mesh);
+    playerRef.current = player;
+
+    // Handle keyboard input
+    const handleKeyDown = (e: KeyboardEvent) => {
+      keysRef.current.add(e.key);
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      keysRef.current.delete(e.key);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
     // Animation loop
     const animate = () => {
       requestAnimationFrame(animate);
       
+      // Update player
+      if (playerRef.current) {
+        playerRef.current.update(keysRef.current);
+        
+        // Update camera to follow player
+        const playerPos = playerRef.current.mesh.position;
+        camera.position.x = playerPos.x;
+        camera.position.z = playerPos.z + 20;
+        camera.lookAt(playerPos);
+      }
+
       // Update grass animation
       const time = performance.now() * 0.001;
       const vertices = terrain.geometry.attributes.position.array;
@@ -80,6 +111,8 @@ export const GameWorld = () => {
     window.addEventListener('resize', handleResize);
 
     return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
       containerRef.current?.removeChild(renderer.domElement);
